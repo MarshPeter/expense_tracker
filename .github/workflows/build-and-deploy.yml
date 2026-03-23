@@ -7,7 +7,7 @@ on:
       - main
 
 env:
-  AZURE_WEBAPP_NAME: expense-tracker-bec0dgeygad3h6h3
+  AZURE_WEBAPP_NAME: expense-tracker
   AZURE_WEBAPP_PACKAGE_PATH: "."
   DOTNET_VERSION: "10.x"
   SOLUTION_PATH: "expense_tracker.sln"

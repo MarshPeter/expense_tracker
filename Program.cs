@@ -4,9 +4,11 @@ using expense_tracker.DTO.Requests;
 
 var builder = WebApplication.CreateBuilder(args);
 
+var environment = builder.Configuration.GetConnectionString("Environment");
+
 builder.Services.AddDbContext<ExpenseDBContext>(options => 
     options.UseNpgsql(
-        builder.Configuration.GetConnectionString("DefaultConnection")
+        builder.Configuration.GetConnectionString("DbDefaultConnection")
     ));
 
 // Add services to the container.
@@ -16,7 +18,10 @@ builder.Services.AddOpenApi();
 // Makes use of data annotations to ensure passed in data meet's DTO requirements
 builder.Services.AddValidation();
 
-// Setup session information
+// Cache for sessions
+builder.Services.AddDistributedMemoryCache();
+
+// Setup session information, the tokens are passed automatically and retrieved automatically before the endpoints
 builder.Services.AddSession(options =>
 {
     options.IdleTimeout = TimeSpan.FromMinutes(30);
@@ -42,7 +47,7 @@ var summaries = new[]
 
 // account options
 // Create 
-app.MapPost("/api/credentials/create", async (HttpContext ctx, CreateUserRequest dto, ExpenseDBContext db) =>
+app.MapPost("/api/credentials/create", async (HttpContext ctx, ExpenseDBContext db, CreateUserRequest dto) =>
 {
     // Check for presence of username or email being present and unique
     // If not unique, reject request
@@ -52,7 +57,7 @@ app.MapPost("/api/credentials/create", async (HttpContext ctx, CreateUserRequest
 
     if (existingDetails != null)
     {
-        return Results.Conflict();
+        return Results.Conflict("Username or Email is already taken");
     }
 
     // Hash the password
@@ -71,18 +76,22 @@ app.MapPost("/api/credentials/create", async (HttpContext ctx, CreateUserRequest
     {
         // Create row in database
         await db.AddAsync(credentials);
-
-        // If failed for, reject request
         
+        // save changes
         await db.SaveChangesAsync();
     } catch (Exception ex)
     {
-        Console.WriteLine("There was an exception: ", ex);
+        // If failed for, reject request with 500
+        Console.WriteLine("There was an exception when addign new user details to the database: ", ex);
+        return Results.InternalServerError("There was an error on the server, please try again");
     }
 
-    // Create session ID (Lifetime: 10 minutes)
-    // Assoicate session ID with username
-    // return session ID to the user
+    // Create session ID 
+    ctx.Session.SetString("user_id", credentials.Id.ToString());
+    ctx.Session.SetString("username", credentials.Username);
+
+    // return success to user
+    return Results.Created();
 });
 
 // Login
@@ -124,6 +133,22 @@ app.MapPost("/api/credentials/delete", (ExpenseDBContext ctx) =>
 });
 
 
+// This handles my produciton migration since I don't want to include another step in my CICD pipeline. 
+if (app.Environment.IsProduction())
+{
+    try
+    {
+        using var scope = app.Services.CreateScope();
+
+        var db = scope.ServiceProvider.GetRequiredService<ExpenseDBContext>();
+
+        db.Database.Migrate();
+    } catch (Exception ex) {
+        Console.WriteLine($"There was an error with migration: {ex}");
+    }
+}
+
+
 app.MapGet("/weatherforecast", () =>
 {
     var forecast =  Enumerable.Range(1, 5).Select(index =>
@@ -138,6 +163,8 @@ app.MapGet("/weatherforecast", () =>
 })
 .WithName("GetWeatherForecast");
 
+
+app.UseSession();   // This must be after UseRouting
 app.Run();
 
 record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)

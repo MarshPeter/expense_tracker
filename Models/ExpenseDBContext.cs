@@ -38,7 +38,8 @@ public class ExpenseDBContext : DbContext
                 .HasColumnName("created")
                 .IsRequired();
 
-            entity.HasIndex(p => p.Username);
+            entity.HasIndex(p => p.Username).IsUnique();
+            entity.HasIndex(p => p.Email).IsUnique();
         });
     }
 }
